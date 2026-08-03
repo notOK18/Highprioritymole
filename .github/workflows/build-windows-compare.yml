@@ -1,6 +1,7 @@
 name: Build Windows app (Common Molecules Finder)
 
 # Builds the Windows .exe for the Common Molecules Finder on a GitHub Windows machine.
+# (re-trigger to ensure this workflow runs and uploads its artifact)
 on:
   push:
     branches: [ main ]
