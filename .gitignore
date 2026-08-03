@@ -1,0 +1,15 @@
+# Data — keep on disk, never commit
+data/
+Data/
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Secrets
+.env
