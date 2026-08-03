@@ -47,6 +47,39 @@ def load_molecules(path: Path) -> pd.DataFrame:
         return pd.read_excel(path)
 
 
+def select_molecules(df: pd.DataFrame, priority: str, competition: str) -> pd.DataFrame:
+    """Return the rows whose Priority == `priority` and Competition ~ `competition`."""
+    for needed in (PRIORITY_COL, COMPETITION_COL):
+        if needed not in df.columns:
+            raise ValueError(f"Column '{needed}' not found. Columns are: {list(df.columns)}")
+    priority_match = df[PRIORITY_COL].astype(str).str.strip().str.lower() == priority.lower()
+    competition_match = df[COMPETITION_COL].astype(str).str.contains(competition, case=False, na=False)
+    selected = df[priority_match & competition_match].copy()
+    if SORT_COL in selected.columns:
+        selected = selected.sort_values(
+            SORT_COL, ascending=False, key=lambda s: pd.to_numeric(s, errors="coerce")
+        )
+    return selected.reset_index(drop=True)
+
+
+def write_workbook(df, selected, out_path, priority, competition, sheet_name="High Priority Monopoly"):
+    """Write a two-sheet workbook: the full table + the selected molecules as a titled table."""
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    title = f"{priority.title()}-priority molecules with {competition.title()} competition  ({len(selected)} molecules)"
+    with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name="All Molecules", index=False)
+        selected.to_excel(writer, sheet_name=sheet_name, index=False, startrow=1)
+        ws = writer.sheets[sheet_name]
+        ws.cell(row=1, column=1, value=title).font = Font(bold=True, size=13)
+        for cell in ws[2]:  # header row sits on row 2 (title is row 1)
+            cell.font = Font(bold=True)
+        for idx, column in enumerate(selected.columns, start=1):
+            width = max(len(str(column)), *(len(str(v)) for v in selected[column].astype(str))) if len(selected) else len(str(column))
+            ws.column_dimensions[get_column_letter(idx)].width = min(48, width + 2)
+    return out_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Select high-priority monopoly molecules.")
     parser.add_argument("--file", help="Source export (default: newest in Data/).")
@@ -61,19 +94,7 @@ def main() -> None:
         path = HERE / path
 
     df = load_molecules(path)
-    for needed in (PRIORITY_COL, COMPETITION_COL):
-        if needed not in df.columns:
-            raise ValueError(f"Column '{needed}' not found. Columns are: {list(df.columns)}")
-
-    priority_match = df[PRIORITY_COL].astype(str).str.strip().str.lower() == args.priority.lower()
-    competition_match = df[COMPETITION_COL].astype(str).str.contains(args.competition, case=False, na=False)
-    selected = df[priority_match & competition_match].copy()
-
-    if SORT_COL in selected.columns:
-        selected = selected.sort_values(
-            SORT_COL, ascending=False, key=lambda s: pd.to_numeric(s, errors="coerce")
-        )
-    selected = selected.reset_index(drop=True)
+    selected = select_molecules(df, args.priority, args.competition)
 
     # Default: a real Excel workbook beside the source, same base name.
     # (The source .xls is HTML and cannot itself hold multiple sheets.)
@@ -81,20 +102,7 @@ def main() -> None:
         out_path = Path(args.out) if Path(args.out).is_absolute() else HERE / args.out
     else:
         out_path = path.with_suffix(".xlsx")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    title = f"High-priority molecules with {args.competition.title()} competition  ({len(selected)} molecules)"
-    with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name="All Molecules", index=False)
-        selected.to_excel(writer, sheet_name="High Priority Monopoly", index=False, startrow=1)
-
-        ws = writer.sheets["High Priority Monopoly"]
-        ws.cell(row=1, column=1, value=title).font = Font(bold=True, size=13)
-        for cell in ws[2]:  # header row sits on row 2 (title is row 1)
-            cell.font = Font(bold=True)
-        for idx, column in enumerate(selected.columns, start=1):
-            width = max(len(str(column)), *(len(str(v)) for v in selected[column].astype(str))) if len(selected) else len(str(column))
-            ws.column_dimensions[get_column_letter(idx)].width = min(48, width + 2)
+    write_workbook(df, selected, out_path, args.priority, args.competition)
 
     print(f"Source            : {path.name}")
     print(f"Total molecules   : {len(df)}")
