@@ -196,7 +196,9 @@ class App:
 
     def _work(self, supplier_path, hp_path, pot_path, supplier_sheet, hp_sheet, pot_sheet):
         try:
-            out = os.path.join(os.path.dirname(supplier_path), "Supplier common molecules.xlsx")
+            supplier_name = os.path.splitext(os.path.basename(supplier_path))[0]
+            out = os.path.join(os.path.dirname(supplier_path),
+                               f"Common molecules - {supplier_name}.xlsx")
             _, count = compare_supplier(
                 supplier_path, hp_path, pot_path, out,
                 supplier_sheet=supplier_sheet, hp_sheet=hp_sheet, pot_sheet=pot_sheet)
