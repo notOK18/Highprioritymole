@@ -10,6 +10,7 @@ is only the window.
 """
 
 import os
+import subprocess
 import sys
 import threading
 import traceback
@@ -41,6 +42,22 @@ DROP_HOVER = "#245079"
 
 PRIORITIES = ["High", "Medium", "Low"]
 COMPETITIONS = ["Monopoly", "Duopoly", "Low", "Medium", "High"]
+
+# "Show in Finder" is macOS wording; on Windows/Linux the file manager differs.
+REVEAL_LABEL = {"darwin": "Show in Finder", "win32": "Show in Folder"}.get(sys.platform, "Open Folder")
+
+
+def reveal_in_file_manager(path):
+    """Open the OS file manager with `path` selected (macOS/Windows/Linux)."""
+    if not (path and os.path.exists(path)):
+        return
+    if sys.platform == "darwin":
+        subprocess.run(["open", "-R", path])
+    elif sys.platform == "win32":
+        # explorer returns exit code 1 even on success, so don't check it.
+        subprocess.run(["explorer", "/select,", os.path.normpath(path)])
+    else:
+        subprocess.run(["xdg-open", os.path.dirname(path)])
 
 
 class App:
@@ -104,7 +121,7 @@ class App:
 
         self.reveal_path = None
         self.reveal_btn = tk.Button(
-            outer, text="Show in Finder", command=self.reveal, bg=ACCENT_2, fg="white",
+            outer, text=REVEAL_LABEL, command=self.reveal, bg=ACCENT_2, fg="white",
             relief="flat", bd=0, font=("Helvetica", 12, "bold"), cursor="hand2",
         )
 
@@ -165,8 +182,7 @@ class App:
         messagebox.showerror("Error", f"{exc}\n\n{tb}")
 
     def reveal(self):
-        if self.reveal_path and os.path.exists(self.reveal_path):
-            os.system(f'open -R "{self.reveal_path}"')
+        reveal_in_file_manager(self.reveal_path)
 
 
 def main():
