@@ -1,12 +1,10 @@
-"""Drag-and-drop UI: enrich supplier-common molecules with Forecast data.
+"""Mac drag-and-drop UI: enrich supplier-common molecules with Forecast data.
 
-Instead of one Forecast-folder drop, there is a separate drop for each source
-file: the supplier-common workbook, the MIDAS sales file, the hospital
-consumption file, and the tender PDF. Any of the three forecast drops may be
-left empty. The logic lives in forecast_enrich.py (enrich_files).
-
-This is the file the Windows build packages; forecast_ui_mac.py is the identical
-macOS variant.
+This is the macOS variant. Instead of one Forecast-folder drop, it has a
+separate drop for each source file: the supplier-common workbook, the MIDAS
+sales file, the hospital consumption file, and the tender PDF. Any of the three
+forecast drops may be left empty. Logic lives in forecast_enrich.py
+(enrich_files). The Windows app uses forecast_ui.py (the folder version) instead.
 """
 
 import os

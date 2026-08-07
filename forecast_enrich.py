@@ -219,6 +219,37 @@ def enrich(common_path, forecast_dir, out_path, common_sheet="Common"):
         elif kind == "tender":
             tender = extract_tender(path); sources_found.append(("Tender", path.name))
 
+    return _assemble_and_write(keys, display, midas, hospital, tender, sources_found, out_path)
+
+
+def enrich_files(common_path, out_path, midas_path=None, hospital_path=None,
+                 tender_path=None, common_sheet="Common", midas_sheet=None, hospital_sheet=None):
+    """Like enrich(), but with each forecast file given explicitly (any may be None).
+
+    The Mac app uses this: one drop per source instead of a single folder. Sheets
+    are auto-detected when not pinned. Returns (out_path, matched_count).
+    """
+    keys, display = _supplier_common_keys(common_path, sheet=common_sheet or "Common")
+
+    midas, hospital, tender = {}, {}, {}
+    sources_found = []
+    if midas_path:
+        sheet = midas_sheet or _sheet_matching(midas_path, ["molecule", "2023", "2024", "2025"])
+        midas = extract_midas(midas_path, sheet)
+        sources_found.append(("MIDAS", Path(midas_path).name))
+    if hospital_path:
+        sheet = hospital_sheet or _sheet_matching(hospital_path, ["lebanon consumption", "40%"])
+        hospital = extract_hospital(hospital_path, sheet)
+        sources_found.append(("Hospital", Path(hospital_path).name))
+    if tender_path:
+        tender = extract_tender(tender_path)
+        sources_found.append(("Tender", Path(tender_path).name))
+
+    return _assemble_and_write(keys, display, midas, hospital, tender, sources_found, out_path)
+
+
+def _assemble_and_write(keys, display, midas, hospital, tender, sources_found, out_path):
+    """Build the summary + detail tables from the three source dicts and write them."""
     summary_rows, midas_detail, hosp_detail, tender_detail = [], [], [], []
     matched = 0
     for key in keys:
