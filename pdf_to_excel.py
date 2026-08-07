@@ -9,7 +9,6 @@ them. `convert(...)` is the entry point the UI calls.
 """
 
 import re
-from collections import OrderedDict
 from pathlib import Path
 
 _INVALID_SHEET = re.compile(r"[\[\]:*?/\\]")
@@ -23,52 +22,78 @@ def _clean(cell):
     return re.sub(r"\s+", " ", str(cell)).strip()
 
 
-def _merge_tables(tables):
-    """Group tables by column count and concatenate each group into one grid.
+def _clean_grid(table):
+    """Clean every cell and drop fully blank rows."""
+    grid = [[_clean(c) for c in row] for row in table]
+    return [r for r in grid if any(r)]
 
-    A table split across pages comes back as several same-width tables; joining
-    them (and skipping a repeated header row) rebuilds the original table.
-    """
-    groups = OrderedDict()
-    for table in tables:
-        width = max((len(r) for r in table), default=0)
-        groups.setdefault(width, []).append(table)
 
+def _drop_empty_columns(grid):
+    """Remove columns that are empty in every row."""
+    if not grid:
+        return grid
+    width = max(len(r) for r in grid)
+    grid = [r + [""] * (width - len(r)) for r in grid]
+    keep = [c for c in range(width) if any(row[c].strip() for row in grid)]
+    return [[row[c] for c in keep] for row in grid]
+
+
+def _page_tables(page):
+    """Tables on one page: ruled tables first, else a text-aligned (borderless) one."""
+    # 1) ruled/lattice tables (real cell borders)
+    grids = [g for g in (_clean_grid(t) for t in page.extract_tables())
+             if g and max(len(r) for r in g) > 1]
+    if grids:
+        return grids
+
+    # 2) borderless table inferred from how the words line up. A column boundary
+    # is only kept where enough rows align there (min_words_vertical), so the
+    # description column is not split at every word gap. Tune it to the row count.
+    n_rows = sum(1 for line in (page.extract_text() or "").split("\n") if line.strip())
+    if n_rows < 2:
+        return []
+    mwv = max(3, min(8, round(n_rows * 0.4)))
+    settings = {"vertical_strategy": "text", "horizontal_strategy": "text",
+                "min_words_vertical": mwv, "min_words_horizontal": 1}
     grids = []
-    for width, group in groups.items():
-        merged, header = [], None
-        for table in group:
-            for row in table:
-                row = row + [""] * (width - len(row))
-                if header is None:
-                    header, merged = row, [row]
-                elif row != header:  # skip the header repeated on later pages
-                    merged.append(row)
-        grids.append(merged)
+    for table in page.extract_tables(settings):
+        grid = _drop_empty_columns(_clean_grid(table))
+        if grid and len(grid) > 1 and max(len(r) for r in grid) > 1:
+            grids.append(grid)
     return grids
 
 
+def _merge_grids(grids):
+    """Concatenate page grids into one (pad to max width, drop a repeated header)."""
+    width = max((max((len(r) for r in g), default=0) for g in grids), default=0)
+    merged, header = [], None
+    for grid in grids:
+        for row in grid:
+            row = row + [""] * (width - len(row))
+            if header is None:
+                header, merged = row, [row]
+            elif row != header:  # skip the header repeated on later pages
+                merged.append(row)
+    return merged
+
+
 def extract_pdf_grids(path):
-    """Return a list of grids (each grid = list of string rows) for one PDF."""
+    """Return a list of grids (usually one) of string rows for one PDF."""
     import pdfplumber
 
     tables, text_lines = [], []
     with pdfplumber.open(str(path)) as pdf:
         for page in pdf.pages:
-            page_tables = page.extract_tables()
-            if page_tables:
-                for table in page_tables:
-                    grid = [[_clean(c) for c in row] for row in table]
-                    grid = [r for r in grid if any(r)]  # drop blank rows
-                    if grid:
-                        tables.append(grid)
+            page_grids = _page_tables(page)
+            if page_grids:
+                tables.extend(page_grids)
             else:
                 for line in (page.extract_text() or "").split("\n"):
                     if line.strip():
                         text_lines.append([line.strip()])
 
     if tables:
-        return _merge_tables(tables)
+        return [_drop_empty_columns(_merge_grids(tables))]
     if text_lines:
         return [text_lines]
     return []
