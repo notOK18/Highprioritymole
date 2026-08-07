@@ -46,6 +46,11 @@ def _num(value):
         return None
 
 
+def _ri(value):
+    """Round to a whole number (consumption figures are reported as integers)."""
+    return None if value is None else int(round(value))
+
+
 # ---------------------------------------------------------------------------
 # Source detection
 # ---------------------------------------------------------------------------
@@ -129,8 +134,8 @@ def extract_hospital(path, sheet):
         records.setdefault(key, []).append({
             "Molecule": row[mol],
             "Dose/Strength": row[dose] if dose else "",
-            "Lebanon Consumption 40%": _num(row[leb]) if leb else None,
-            "Total Lebanon Consumption 40%": _num(row[tot]) if tot else None,
+            "Lebanon Consumption 40%": _ri(_num(row[leb])) if leb else None,
+            "Total Lebanon Consumption 40%": _ri(_num(row[tot])) if tot else None,
         })
     return records
 
@@ -259,23 +264,46 @@ def _assemble_and_write(keys, display, midas, hospital, tender, sources_found, o
         if not (m_rows or h_rows or t_rows):
             continue
         matched += 1
-        found = [name for name, rows in
-                 (("MIDAS", m_rows), ("Hospital", h_rows), ("Tender", t_rows)) if rows]
+        found = " + ".join(name for name, rows in
+                           (("MIDAS", m_rows), ("Hospital", h_rows), ("Tender", t_rows)) if rows)
 
-        summary_rows.append({
-            "Molecule": display[key],
-            "Found in": " + ".join(found),
+        # MIDAS and tender are molecule-level; hospital consumption is per-dose.
+        midas_cells = {
             "2023 Units": _sum(m_rows, "2023 Units"),
             "2024 Units": _sum(m_rows, "2024 Units"),
             "2025 Units": _sum(m_rows, "2025 Units"),
-            # by-dose is summed across doses; the molecule-level total is already
-            # repeated on every dose row, so take it (max), don't sum it.
-            "Lebanon Consumption 40%": _sum(h_rows, "Lebanon Consumption 40%"),
-            "Total Lebanon Consumption 40%": _max(h_rows, "Total Lebanon Consumption 40%"),
+        }
+        blank_midas = {k: None for k in midas_cells}
+        tender_cells = {
             "Tender Min Qty": min((r["Min Qty"] for r in t_rows if r["Min Qty"] is not None), default=None),
             "Tender Max Qty": max((r["Max Qty"] for r in t_rows if r["Max Qty"] is not None), default=None),
             "Tender products": len(t_rows) or None,
-        })
+        }
+        blank_tender = {k: None for k in tender_cells}
+        total_leb = _max(h_rows, "Total Lebanon Consumption 40%")  # molecule total (integer)
+
+        if h_rows:
+            # One row per dose; molecule-level MIDAS/tender sit on the first row only.
+            for i, hr in enumerate(h_rows):
+                summary_rows.append({
+                    "Molecule": display[key],
+                    "Dose": hr.get("Dose/Strength", ""),
+                    "Found in": found,
+                    **(midas_cells if i == 0 else blank_midas),
+                    "Lebanon Consumption 40%": hr.get("Lebanon Consumption 40%"),
+                    "Total Lebanon Consumption 40%": total_leb,
+                    **(tender_cells if i == 0 else blank_tender),
+                })
+        else:
+            summary_rows.append({
+                "Molecule": display[key],
+                "Dose": "",
+                "Found in": found,
+                **midas_cells,
+                "Lebanon Consumption 40%": None,
+                "Total Lebanon Consumption 40%": None,
+                **tender_cells,
+            })
         for r in m_rows:
             midas_detail.append({"Molecule": display[key], **r})
         for r in h_rows:
