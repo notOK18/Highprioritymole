@@ -51,6 +51,16 @@ def _ri(value):
     return None if value is None else int(round(value))
 
 
+def _strength_suffix(text):
+    """The strength/form part of a tender composition.
+
+    'Nilotinib (Tasisna) 150 mA Co' -> '150 mA Co';  'Vincristine 1me lni' -> '1me lni'.
+    """
+    cleaned = re.sub(r"\([^)]*\)", " ", str(text))
+    m = re.search(r"\d.*$", cleaned)
+    return (m.group(0) if m else cleaned).strip()
+
+
 # ---------------------------------------------------------------------------
 # Source detection
 # ---------------------------------------------------------------------------
@@ -171,6 +181,7 @@ def extract_tender(path, sheet=None):
                 records.setdefault(key, []).append({
                     "Nb": nb,
                     "Composition": composition,
+                    "Strength": _strength_suffix(composition),
                     "Min Qty": _num(min_tok.group()),
                     "Max Qty": _num(max_tok.group()),
                 })
@@ -267,42 +278,53 @@ def _assemble_and_write(keys, display, midas, hospital, tender, sources_found, o
         found = " + ".join(name for name, rows in
                            (("MIDAS", m_rows), ("Hospital", h_rows), ("Tender", t_rows)) if rows)
 
-        # MIDAS and tender are molecule-level; hospital consumption is per-dose.
+        # MIDAS is molecule-level (aggregated); hospital and tender are shown per
+        # line item — one row per hospital dose and one row per tender product.
         midas_cells = {
             "2023 Units": _sum(m_rows, "2023 Units"),
             "2024 Units": _sum(m_rows, "2024 Units"),
             "2025 Units": _sum(m_rows, "2025 Units"),
         }
         blank_midas = {k: None for k in midas_cells}
-        tender_cells = {
-            "Tender Min Qty": min((r["Min Qty"] for r in t_rows if r["Min Qty"] is not None), default=None),
-            "Tender Max Qty": max((r["Max Qty"] for r in t_rows if r["Max Qty"] is not None), default=None),
-            "Tender products": len(t_rows) or None,
-        }
-        blank_tender = {k: None for k in tender_cells}
         total_leb = _max(h_rows, "Total Lebanon Consumption 40%")  # molecule total (integer)
 
-        if h_rows:
-            # One row per dose; molecule-level MIDAS/tender sit on the first row only.
-            for i, hr in enumerate(h_rows):
-                summary_rows.append({
-                    "Molecule": display[key],
-                    "Dose": hr.get("Dose/Strength", ""),
-                    "Found in": found,
-                    **(midas_cells if i == 0 else blank_midas),
-                    "Lebanon Consumption 40%": hr.get("Lebanon Consumption 40%"),
-                    "Total Lebanon Consumption 40%": total_leb,
-                    **(tender_cells if i == 0 else blank_tender),
-                })
-        else:
-            summary_rows.append({
-                "Molecule": display[key],
-                "Dose": "",
-                "Found in": found,
-                **midas_cells,
+        line_items = []
+        for hr in h_rows:
+            line_items.append({
+                "Dose / Strength": hr.get("Dose/Strength", ""),
+                "Lebanon Consumption 40%": hr.get("Lebanon Consumption 40%"),
+                "Total Lebanon Consumption 40%": total_leb,
+                "Tender Min Qty": None,
+                "Tender Max Qty": None,
+            })
+        for tr in t_rows:
+            line_items.append({
+                "Dose / Strength": tr.get("Strength") or tr.get("Composition", ""),
                 "Lebanon Consumption 40%": None,
                 "Total Lebanon Consumption 40%": None,
-                **tender_cells,
+                "Tender Min Qty": tr.get("Min Qty"),
+                "Tender Max Qty": tr.get("Max Qty"),
+            })
+        if not line_items:  # MIDAS-only molecule
+            line_items.append({
+                "Dose / Strength": "",
+                "Lebanon Consumption 40%": None,
+                "Total Lebanon Consumption 40%": None,
+                "Tender Min Qty": None,
+                "Tender Max Qty": None,
+            })
+
+        # MIDAS aggregate sits on the molecule's first line-item row only.
+        for i, li in enumerate(line_items):
+            summary_rows.append({
+                "Molecule": display[key],
+                "Dose / Strength": li["Dose / Strength"],
+                "Found in": found,
+                **(midas_cells if i == 0 else blank_midas),
+                "Lebanon Consumption 40%": li["Lebanon Consumption 40%"],
+                "Total Lebanon Consumption 40%": li["Total Lebanon Consumption 40%"],
+                "Tender Min Qty": li["Tender Min Qty"],
+                "Tender Max Qty": li["Tender Max Qty"],
             })
         for r in m_rows:
             midas_detail.append({"Molecule": display[key], **r})
